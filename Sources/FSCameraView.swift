@@ -22,17 +22,14 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
     @IBOutlet weak var flashButton: UIButton!
     @IBOutlet weak var flipButton: UIButton!
     @IBOutlet weak var fullAspectRatioConstraint: NSLayoutConstraint!
-    var croppedAspectRatioConstraint: NSLayoutConstraint?
-    var initialCaptureDevicePosition: AVCaptureDevice.Position = .back
+    @objc var croppedAspectRatioConstraint: NSLayoutConstraint?
     
-    weak var delegate: FSCameraViewDelegate? = nil
+    @objc weak var delegate: FSCameraViewDelegate? = nil
     
     fileprivate var session: AVCaptureSession?
     fileprivate var device: AVCaptureDevice?
     fileprivate var videoInput: AVCaptureDeviceInput?
     fileprivate var imageOutput: AVCaptureStillImageOutput?
-    fileprivate var videoLayer: AVCaptureVideoPreviewLayer?
-
     fileprivate var focusView: UIView?
 
     fileprivate var flashOffImage: UIImage?
@@ -41,12 +38,12 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
     fileprivate var motionManager: CMMotionManager?
     fileprivate var currentDeviceOrientation: UIDeviceOrientation?
     
-    static func instance() -> FSCameraView {
+    @objc static func instance() -> FSCameraView {
         
         return UINib(nibName: "FSCameraView", bundle: Bundle(for: self.classForCoder())).instantiate(withOwner: self, options: nil)[0] as! FSCameraView
     }
     
-    func initialize() {
+    @objc func initialize() {
         
         if session != nil { return }
         
@@ -57,16 +54,25 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
         flashOnImage = fusumaFlashOnImage != nil ? fusumaFlashOnImage : UIImage(named: "ic_flash_on", in: bundle, compatibleWith: nil)
         flashOffImage = fusumaFlashOffImage != nil ? fusumaFlashOffImage : UIImage(named: "ic_flash_off", in: bundle, compatibleWith: nil)
         let flipImage = fusumaFlipImage != nil ? fusumaFlipImage : UIImage(named: "ic_loop", in: bundle, compatibleWith: nil)
-        let shotImage = fusumaShotImage != nil ? fusumaShotImage : UIImage(named: "ic_shutter", in: bundle, compatibleWith: nil)
+        let shotImage = fusumaShotImage != nil ? fusumaShotImage : UIImage(named: "ic_radio_button_checked", in: bundle, compatibleWith: nil)
         
-        flashButton.tintColor = fusumaBaseTintColor
-        flipButton.tintColor  = fusumaBaseTintColor
-        shotButton.tintColor  = fusumaBaseTintColor
+        if fusumaTintIcons {
+            
+            flashButton.tintColor = fusumaBaseTintColor
+            flipButton.tintColor  = fusumaBaseTintColor
+            shotButton.tintColor  = fusumaBaseTintColor
+            
+            flashButton.setImage(flashOffImage?.withRenderingMode(.alwaysTemplate), for: UIControlState())
+            flipButton.setImage(flipImage?.withRenderingMode(.alwaysTemplate), for: UIControlState())
+            shotButton.setImage(shotImage?.withRenderingMode(.alwaysTemplate), for: UIControlState())
         
-        flashButton.setImage(flashOffImage?.withRenderingMode(.alwaysTemplate), for: .normal)
-        flipButton.setImage(flipImage?.withRenderingMode(.alwaysTemplate), for: .normal)
-        shotButton.setImage(shotImage?.withRenderingMode(.alwaysTemplate), for: .normal)
+        } else {
         
+            flashButton.setImage(flashOffImage, for: UIControlState())
+            flipButton.setImage(flipImage, for: UIControlState())
+            shotButton.setImage(shotImage, for: UIControlState())
+        }
+
         self.isHidden = false
         
         // AVCapture
@@ -76,7 +82,8 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
         
         for device in AVCaptureDevice.devices() {
             
-            if device.position == initialCaptureDevicePosition {
+            if let device = device as? AVCaptureDevice,
+                device.position == AVCaptureDevice.Position.back {
                 
                 self.device = device
                 
@@ -87,30 +94,34 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
             }
         }
         
-  
-        if let _device = device, let _videoInput = try? AVCaptureDeviceInput(device: _device) {
-            videoInput = _videoInput
+        do {
+            guard let device = device else { return }
+            videoInput = try AVCaptureDeviceInput(device: device)
+            
             session.addInput(videoInput!)
-          
+            
             imageOutput = AVCaptureStillImageOutput()
-          
+            
             session.addOutput(imageOutput!)
-          
-            videoLayer = AVCaptureVideoPreviewLayer(session: session)
-            videoLayer?.frame = self.previewViewContainer.bounds
-            videoLayer?.videoGravity = AVLayerVideoGravity.resizeAspectFill
-          
-            self.previewViewContainer.layer.addSublayer(videoLayer!)
-          
+            
+            let videoLayer = AVCaptureVideoPreviewLayer(session: session)
+            videoLayer.frame = self.previewViewContainer.bounds
+            videoLayer.videoGravity = AVLayerVideoGravity.resizeAspectFill
+            
+            self.previewViewContainer.layer.addSublayer(videoLayer)
+            
             session.sessionPreset = AVCaptureSession.Preset.photo
-          
+            
             session.startRunning()
-          
+
             // Focus View
             self.focusView         = UIView(frame: CGRect(x: 0, y: 0, width: 90, height: 90))
             let tapRecognizer      = UITapGestureRecognizer(target: self, action:#selector(FSCameraView.focus(_:)))
             tapRecognizer.delegate = self
             self.previewViewContainer.addGestureRecognizer(tapRecognizer)
+            
+        } catch {
+            
         }
         
         flashConfiguration()
@@ -130,7 +141,7 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
         NotificationCenter.default.removeObserver(self)
     }
     
-    func startCamera() {
+    @objc func startCamera() {
         
         switch AVCaptureDevice.authorizationStatus(for: AVMediaType.video) {
             
@@ -165,7 +176,7 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
         }
     }
     
-    func stopCamera() {
+    @objc func stopCamera() {
         
         session?.stopRunning()
         motionManager?.stopAccelerometerUpdates()
@@ -182,47 +193,85 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
         DispatchQueue.global(qos: .default).async(execute: { () -> Void in
 
             let videoConnection = imageOutput.connection(with: AVMediaType.video)
+
+            let orientation = self.currentDeviceOrientation ?? UIDevice.current.orientation
             
+            switch (orientation) {
+            
+            case .portrait:
+            
+                videoConnection?.videoOrientation = .portrait
+            
+            case .portraitUpsideDown:
+            
+                videoConnection?.videoOrientation = .portraitUpsideDown
+            
+            case .landscapeRight:
+            
+                videoConnection?.videoOrientation = .landscapeLeft
+            
+            case .landscapeLeft:
+            
+                videoConnection?.videoOrientation = .landscapeRight
+            
+            default:
+            
+                videoConnection?.videoOrientation = .portrait
+            }
+
             imageOutput.captureStillImageAsynchronously(from: videoConnection!) { (buffer, error) -> Void in
                 
                 self.stopCamera()
                 
                 guard let data = AVCaptureStillImageOutput.jpegStillImageNSDataRepresentation(buffer!),
                     let image = UIImage(data: data),
-                    let cgImage = image.cgImage,
-                    let delegate = self.delegate,
-                    let videoLayer = self.videoLayer else {
+                    let delegate = self.delegate else {
                         
                         return
                 }
                 
-                let rect   = videoLayer.metadataOutputRectConverted(fromLayerRect: videoLayer.bounds)
-                let width  = CGFloat(cgImage.width)
-                let height = CGFloat(cgImage.height)
+                // Image size
+                let iw: CGFloat
+                let ih: CGFloat
                 
-                let cropRect = CGRect(x: rect.origin.x * width,
-                                      y: rect.origin.y * height,
-                                      width: rect.size.width * width,
-                                      height: rect.size.height * height)
+                switch (orientation) {
+                    
+                case .landscapeLeft, .landscapeRight:
+                    
+                    // Swap width and height if orientation is landscape
+                    iw = image.size.height
+                    ih = image.size.width
+                    
+                default:
+                    
+                    iw = image.size.width
+                    ih = image.size.height
+                    
+                }
                 
-                guard let img = cgImage.cropping(to: cropRect) else {
+                // Frame size
+                let sw = self.previewViewContainer.frame.width
+                
+                // The center coordinate along Y axis
+                let rcy = ih * 0.5
+                
+                guard let imageRef = image.cgImage?.cropping(to: CGRect(x: rcy-iw*0.5, y: 0 , width: iw, height: iw)) else {
                     
                     return
                 }
                 
-                let croppedUIImage = UIImage(cgImage: img, scale: 1.0, orientation: image.imageOrientation)
-                
                 DispatchQueue.main.async(execute: { () -> Void in
                     
-                    delegate.cameraShotFinished(croppedUIImage)
+                    let image = fusumaCropImage ? UIImage(cgImage: imageRef, scale: sw/iw, orientation: image.imageOrientation) : image
+                    
+                    delegate.cameraShotFinished(image)
                     
                     if fusumaSavesImage {
                         
-                        self.saveImageToCameraRoll(image: croppedUIImage)
+                        self.saveImageToCameraRoll(image: image)
                     }
                     
                     self.session       = nil
-                    self.videoLayer    = nil
                     self.device        = nil
                     self.imageOutput   = nil
                     self.motionManager = nil
@@ -252,16 +301,18 @@ final class FSCameraView: UIView, UIGestureRecognizerDelegate {
 
                 for device in AVCaptureDevice.devices(for: AVMediaType.video) {
 
-                    if device.position == position {
+                    if let device = device as? AVCaptureDevice , device.position == position {
                  
                         videoInput = try AVCaptureDeviceInput(device: device)
                         session.addInput(videoInput!)
+                        
                     }
                 }
 
             }
             
             session?.commitConfiguration()
+
             
         } catch {
             
@@ -416,3 +467,4 @@ fileprivate extension FSCameraView {
         return false
     }
 }
+
